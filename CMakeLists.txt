@@ -88,6 +88,39 @@ conan_cmake_install(PATH_OR_REFERENCE .
 )
 find_package(OpenCV REQUIRED)
 find_package(onnxruntime REQUIRED)
+
+# Add TensorRT support
+find_path(TENSORRT_INCLUDE_DIR NvInfer.h
+    HINTS ${TENSORRT_ROOT} ${CUDA_TOOLKIT_ROOT_DIR}
+    PATH_SUFFIXES include)
+
+find_library(TENSORRT_LIBRARY nvinfer
+    HINTS ${TENSORRT_ROOT} ${TENSORRT_LIBRARY_DIR} ${CUDA_TOOLKIT_ROOT_DIR}
+    PATH_SUFFIXES lib lib64 lib/x64)
+
+find_library(TENSORRT_PLUGIN_LIBRARY nvinfer_plugin
+    HINTS ${TENSORRT_ROOT} ${TENSORRT_LIBRARY_DIR} ${CUDA_TOOLKIT_ROOT_DIR}
+    PATH_SUFFIXES lib lib64 lib/x64)
+
+find_library(NVONNX_PARSER_LIBRARY nvonnxparser
+    HINTS ${TENSORRT_ROOT} ${TENSORRT_LIBRARY_DIR} ${CUDA_TOOLKIT_ROOT_DIR}
+    PATH_SUFFIXES lib lib64 lib/x64)
+
+# Find CUDA
+find_package(CUDA REQUIRED)
+
+if(NOT TENSORRT_INCLUDE_DIR OR NOT TENSORRT_LIBRARY)
+    message(WARNING "TensorRT not found. Using fallback paths.")
+    set(TENSORRT_INCLUDE_DIR "/usr/include/x86_64-linux-gnu")
+    set(TENSORRT_LIBRARY "/usr/lib/x86_64-linux-gnu/libnvinfer.so")
+    set(TENSORRT_PLUGIN_LIBRARY "/usr/lib/x86_64-linux-gnu/libnvinfer_plugin.so")
+    set(NVONNX_PARSER_LIBRARY "/usr/lib/x86_64-linux-gnu/libnvonnxparser.so")
+endif()
+
+message(STATUS "TensorRT Include: ${TENSORRT_INCLUDE_DIR}")
+message(STATUS "TensorRT Library: ${TENSORRT_LIBRARY}")
+message(STATUS "CUDA Include: ${CUDA_INCLUDE_DIRS}")
+
 # find_path(ONNX_RUNTIME_SESSION_INCLUDE_DIRS onnxruntime_cxx_api.h HINTS /root/onnxruntime/onnxruntime-linux-x64-1.18.1/include)
 # find_library(ONNX_RUNTIME_LIB onnxruntime HINTS /root/onnxruntime/onnxruntime-linux-x64-1.18.1/lib)
 include_directories("include/")
@@ -146,9 +179,11 @@ set(pluginHeaders
         include/object_detector.h
         include/plugin.h
         include/yolo11_classifier.h
+        include/yolo11_detector.h
+        include/tensorrt_classifier.h
         include/object_tracker.h
         include/object_tracker_utils.h
-        include/visualize.h
+                include/visualize.h
 )
 
 set(pluginSrc ${pluginHeaders}
@@ -160,6 +195,7 @@ set(pluginSrc ${pluginHeaders}
         src/plugin.cpp
         src/yolo11_classifier.cpp
         src/yolo11_detector.cpp
+        src/tensorrt_classifier.cpp
         src/object_tracker.cpp
         src/object_tracker_utils.cpp
 )
@@ -171,6 +207,8 @@ add_library(opencv_object_detection_analytics_plugin SHARED ${pluginSrc})
 target_include_directories(opencv_object_detection_analytics_plugin PRIVATE
         ${OPENCV_ANALYTICS_PLUGIN_SRC_DIR}
         ${ONNX_RUNTIME_SESSION_INCLUDE_DIRS}
+        ${TENSORRT_INCLUDE_DIR}
+        ${CUDA_INCLUDE_DIRS}
 )
 set(CMAKE_EXE_LINKER_FLAGS " -static")
 message("ONNX_RUNTIME_LIB: ${ONNX_RUNTIME_LIB}")
@@ -180,6 +218,11 @@ target_link_libraries(opencv_object_detection_analytics_plugin
         opencv::core opencv::flann opencv::imgproc opencv::imgcodecs opencv::dnn opencv::opencv_dnn opencv::ml
         opencv::plot opencv::opencv_features2d opencv::opencv_calib3d opencv::datasets opencv::video opencv::tracking
         onnxruntime::onnxruntime
+        ${TENSORRT_LIBRARY}
+        ${TENSORRT_PLUGIN_LIBRARY}
+        ${NVONNX_PARSER_LIBRARY}
+        ${CUDA_LIBRARIES}
+        cudart
 )
 target_compile_definitions(opencv_object_detection_analytics_plugin
         PRIVATE NX_PLUGIN_API=${API_EXPORT_MACRO}

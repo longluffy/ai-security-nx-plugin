@@ -2,6 +2,7 @@
 
 #include "plugin.h"
 
+#include <iostream>
 #include "engine.h"
 
 namespace nx_meta_plugin {
@@ -10,7 +11,13 @@ namespace nx_meta_plugin {
 
     Result<IEngine *> Plugin::doObtainEngine() {
         const auto utilityProvider = this->utilityProvider();
-        const std::filesystem::path pluginHomeDir = utilityProvider->homeDir();
+        std::filesystem::path pluginHomeDir = utilityProvider->homeDir();
+        
+        // Fallback: if homeDir is empty, use the known plugins directory
+        if (pluginHomeDir.empty()) {
+            pluginHomeDir = "/opt/networkoptix-metavms/mediaserver/bin/plugins";
+        }
+        
         return new Engine(pluginHomeDir);
     }
 

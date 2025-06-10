@@ -69,9 +69,14 @@ namespace nx_meta_plugin {
         env = Ort::Env(ORT_LOGGING_LEVEL_WARNING, "ONNX_DETECTION");
         sessionOptions = Ort::SessionOptions();
 
-        // Set number of intra-op threads for parallelism
-        sessionOptions.SetIntraOpNumThreads(std::min(6, static_cast<int>(std::thread::hardware_concurrency())));
+        // Set number of intra-op threads for parallelism - reduce for better performance
+        sessionOptions.SetIntraOpNumThreads(std::min(4, static_cast<int>(std::thread::hardware_concurrency())));
+        sessionOptions.SetInterOpNumThreads(2); // Limit inter-op threads
         sessionOptions.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+        
+        // Enable memory optimization
+        sessionOptions.EnableMemPattern();
+        sessionOptions.EnableCpuMemArena();
 
         // Retrieve available execution providers (e.g., CPU, CUDA)
         std::vector<std::string> availableProviders = Ort::GetAvailableProviders();
@@ -93,7 +98,6 @@ namespace nx_meta_plugin {
         // Load the ONNX model into the session
         std::filesystem::path modelPath = m_modelDir / std::filesystem::path("yolov11n.onnx");
         std::string modelPathStr{modelPath.u8string()};
-        std::cout << "Detection model path: " << modelPathStr << std::endl;
 #ifdef _WIN32
         std::wstring w_modelPath(modelPathStr.begin(), m_modelPath.end());
         session = Ort::Session(env, w_modelPath.c_str(), sessionOptions);

@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  nx-meta-ai-security:
+    build: 
+      context: ..
+      dockerfile: deploy/Dockerfile
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    ports:
+      - "7001:7001"    # NX Meta API port
+      - "8080:8080"    # NX Meta Web UI port
+    volumes:
+      - nx_meta_data:/var/lib/nx_meta
+      - nx_meta_logs:/var/log/nx_meta
+      - nx_meta_config:/etc/nx_meta
+      # Mount model files
+      - ./plugin/referModel:/app/models:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  nx_meta_data:
+    driver: local
+  nx_meta_logs:
+    driver: local
+  nx_meta_config:
+    driver: local
+
+networks:
+  default:
+    name: nx-meta-network

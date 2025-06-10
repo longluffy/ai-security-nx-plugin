@@ -1,1 +1,42 @@
+# Build directories
 build/
+*/build/
+**/build/
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+
+# Conan generated files
+conan.lock
+conanbuildinfo.*
+conaninfo.txt
+graph_info.json
+
+# Test build directories
+test_tensor_build/build/
+test_onnx_build/build/
+gpu_test/build/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Compiled binaries
+*.so
+*.dll
+*.dylib
+*.exe
+*.out
+
+# Debug and temporary files
+*.log
+*.tmp
+core.*

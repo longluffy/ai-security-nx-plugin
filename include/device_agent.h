@@ -11,7 +11,7 @@
 
 #include "engine.h"
 #include "yolo11_detector.h"
-#include "yolo11_classifier.h"
+#include "tensorrt_classifier.h"
 #include "object_tracker.h"
 
 
@@ -58,13 +58,13 @@ namespace nx_meta_plugin {
         static constexpr int kTrackFrameCount = 256;
 
         /** Should work on modern PCs. */
-        static constexpr int kDetectionFramePeriod = 2;
+        static constexpr int kDetectionFramePeriod = 5;
 
     private:
         bool m_terminated = false;
         bool m_terminatedPrevious = false;
         const std::unique_ptr<YOLO11Detector> m_objectDetector;
-        const std::unique_ptr<YOLO11Classifier> m_objectClassifier;
+        const std::unique_ptr<TensorRTClassifier> m_tensorrtClassifier;
         std::unique_ptr<ObjectTracker> m_objectTracker;
         int m_frameIndex = 0; /**< Used for generating the detection in the right place. */
         int m_trackIndex = 0; /**< Used in the description of the events. */
@@ -73,9 +73,13 @@ namespace nx_meta_plugin {
         int64_t m_lastVideoFrameTimestampUs = 0;
 
         /** Used for checking whether frame size changed and reinitializing the tracker. */
-
         int m_previousFrameWidth = 0;
         int m_previousFrameHeight = 0;
+        
+        // Performance optimization: cache last detection results
+        DetectionList m_lastDetections;
+        int m_lastDetectionFrameIndex = -1;
+        static constexpr int kDetectionCacheFrames = 3; // Reuse detections for N frames
     };
 
 }

@@ -17,6 +17,7 @@
 #include "exceptions.h"
 #include "frame.h"
 #include "visualize.h"
+#include "tensorrt_classifier.h"
 
 namespace nx_meta_plugin {
 
@@ -33,9 +34,9 @@ namespace nx_meta_plugin {
             const nx::sdk::IDeviceInfo *deviceInfo,
             std::filesystem::path pluginHomeDir) :
     // Call the DeviceAgent helper class constructor telling it to verbosely report to stderr.
-            ConsumingDeviceAgent(deviceInfo, /*enableOutput*/ true),
+            ConsumingDeviceAgent(deviceInfo, /*enableOutput*/ false),
             m_objectDetector(std::make_unique<YOLO11Detector>(pluginHomeDir)),
-            m_objectClassifier(std::make_unique<YOLO11Classifier>(pluginHomeDir)),
+            m_tensorrtClassifier(std::make_unique<TensorRTClassifier>(pluginHomeDir)),
             m_objectTracker(std::make_unique<ObjectTracker>()) {
     }
 
@@ -79,7 +80,8 @@ namespace nx_meta_plugin {
  * Called when the Server sends a new uncompressed frame from a camera.
  */
     bool DeviceAgent::pushUncompressedVideoFrame(const IUncompressedVideoFrame *videoFrame) {
-        m_terminated = m_terminated || m_objectDetector->isTerminated() || m_objectClassifier->isTerminated();
+        m_terminated = m_terminated || m_objectDetector->isTerminated() || 
+                      m_tensorrtClassifier->isTerminated();
         if (m_terminated) {
             if (!m_terminatedPrevious) {
                 pushPluginDiagnosticEvent(
@@ -115,13 +117,21 @@ namespace nx_meta_plugin {
 
         try {
             m_objectDetector->ensureInitialized();
-            m_objectClassifier->ensureInitialized();
+            m_tensorrtClassifier->ensureInitialized();
         }
         catch (const ObjectDetectorInitializationError &e) {
             *outValue = {ErrorCode::otherError, new String(e.what())};
             m_terminated = true;
         }
         catch (const ObjectDetectorIsTerminatedError & /*e*/) {
+            m_terminated = true;
+        }
+        catch (const std::runtime_error &e) {
+            *outValue = {ErrorCode::otherError, new String(std::string("TensorRT initialization error: ") + e.what())};
+            m_terminated = true;
+        }
+        catch (const std::exception &e) {
+            *outValue = {ErrorCode::otherError, new String(std::string("Initialization error: ") + e.what())};
             m_terminated = true;
         }
     };
@@ -232,31 +242,66 @@ namespace nx_meta_plugin {
 
         try {
             cv::Mat image = frame.cvMat;
-            DetectionList detections = m_objectDetector->run(image);
-            detections = m_objectTracker->run(frame, detections);
-
-            std::cout << "Number people: " << detections.size() << std::endl;
-            const cv::Size originalImageSize = image.size();
-            for (auto detection: detections) {
-                cv::Rect boundingBox = nxRectToCvRect(detection->boundingBox, originalImageSize.width,
-                                                      originalImageSize.height);
-                cv::Mat cropped_image = image(boundingBox).clone();
-                cv::resize(cropped_image, cropped_image, cv::Size(640, 640));
-                std::string classLabel = m_objectClassifier->run(image);
-                detection->classLabel = classLabel;
-                std::cout << "label: " << detection->classLabel << std::endl;
+            
+            DetectionList detections;
+            
+            // Performance optimization: Use cached detections for some frames
+            bool useCachedDetections = !m_lastDetections.empty() && 
+                                     (m_frameIndex - m_lastDetectionFrameIndex) < kDetectionCacheFrames;
+            
+            if (useCachedDetections) {
+                // Use cached detections and update with tracker
+                detections = m_lastDetections;
+                detections = m_objectTracker->run(frame, detections);
+            } else {
+                // Stage 1: Object Detection using YOLO (expensive operation)
+                detections = m_objectDetector->run(image);
+                detections = m_objectTracker->run(frame, detections);
+                
+                // Cache the detections
+                m_lastDetections = detections;
+                m_lastDetectionFrameIndex = m_frameIndex;
+            }
+            
+            // Stage 2: Classification using TensorRT for each detected object
+            if (!detections.empty()) {
+                // Limit the number of detections to classify for performance
+                const size_t maxDetectionsToClassify = 5; // Process max 5 objects per frame
+                
+                // Filter detections for classification (skip small/low-confidence ones for performance)
+                DetectionList detectionsToClassify;
+                size_t processedCount = 0;
+                
+                for (const auto& detection : detections) {
+                    if (processedCount >= maxDetectionsToClassify) {
+                        // Set remaining detections to Unknown for performance
+                        detection->classLabel = "Unknown";
+                        continue;
+                    }
+                    
+                    // Only classify if bounding box is large enough and confidence is high enough
+                    float boxArea = detection->boundingBox.width * detection->boundingBox.height;
+                    if (boxArea > 0.01f && detection->confidence > 0.6f) { // At least 1% of frame and 60% confidence
+                        detectionsToClassify.push_back(detection);
+                        processedCount++;
+                    } else {
+                        // Set default classification for small/low-confidence detections
+                        detection->classLabel = "Unknown";
+                    }
+                }
+                
+                // Only run TensorRT if we have detections worth classifying
+                if (!detectionsToClassify.empty()) {
+                    m_tensorrtClassifier->classifyDetections(image, detectionsToClassify);
+                }
             }
 
-//            if (!detections.empty()) {
-//                drawBoundingBox(image, detections[0]);
-//            }
-
+            // Convert detections to metadata packets for UI display
             const auto &objectMetadataPacket =
                     detectionsToObjectMetadataPacket(detections, frame.timestampUs);
             MetadataPacketList result;
             if (objectMetadataPacket)
                 result.push_back(objectMetadataPacket);
-            std::cout << "Number objectMetadataPacket: " << result.size() << std::endl;
             return result;
         }
         catch (const ObjectDetectionError &e) {
@@ -270,6 +315,13 @@ namespace nx_meta_plugin {
             pushPluginDiagnosticEvent(
                     IPluginDiagnosticEvent::Level::error,
                     "Object tracking error.",
+                    e.what());
+            m_terminated = true;
+        }
+        catch (const std::exception &e) {
+            pushPluginDiagnosticEvent(
+                    IPluginDiagnosticEvent::Level::error,
+                    "Classification error.",
                     e.what());
             m_terminated = true;
         }

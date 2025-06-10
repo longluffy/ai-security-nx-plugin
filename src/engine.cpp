@@ -11,7 +11,7 @@ namespace nx_meta_plugin {
 
     Engine::Engine(std::filesystem::path pluginHomeDir) :
     // Call the DeviceAgent helper class constructor telling it to verbosely report to stderr.
-            nx::sdk::analytics::Engine(/*enableOutput*/ true),
+            nx::sdk::analytics::Engine(/*enableOutput*/ false),
             m_pluginHomeDir(pluginHomeDir) {
     }
 

@@ -1,0 +1,36 @@
+{
+    "manifestVersion": "1.0",
+    "id": "nx.sample.opencv_object_detection_analytics_plugin",
+    "name": "AI Security Object Detection with TensorRT Classification",
+    "description": "Two-stage AI pipeline: YOLO object detection followed by TensorRT binary classification (CA/PN)",
+    "version": "1.0.0",
+    "vendor": "AI Security Solutions",
+    "engines": [
+        {
+            "libraryName": "libopencv_object_detection_analytics_plugin",
+            "supportedPixelFormats": ["yuv420", "rgb"],
+            "maxAnalysisResolution": "3840x2160"
+        }
+    ],
+    "requirements": {
+        "gpu": {
+            "required": true,
+            "minMemory": "2GB",
+            "compute": ["CUDA 11.0+", "TensorRT 10.x"]
+        },
+        "system": {
+            "minRam": "4GB",
+            "os": ["Ubuntu 20.04+", "CentOS 8+"]
+        }
+    },
+    "files": [
+        {
+            "path": "libopencv_object_detection_analytics_plugin.so",
+            "description": "Main plugin library with TensorRT integration"
+        },
+        {
+            "path": "referModel/best_new.engine",
+            "description": "TensorRT classification engine (CA/PN binary classifier)"
+        }
+    ]
+}
